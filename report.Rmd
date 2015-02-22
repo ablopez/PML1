@@ -1,0 +1,241 @@
+---
+title: 'Practical Machine Learning Project '
+author: "A Lopez"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+fig_caption: yes
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  \usepackage[utf8]{inputenc}
+---
+
+## Project Ojective
+### Introduction
+ This is document describes the final project for the Johns Hopkins' Coursera "Practical Machine Learning" in the Data Science specialization.
+
+ The goal of this project is to predict the manner in which six individuals do an exercise routine.
+
+ The input data consisted of various exercise measurements including acceleration components of the arms, pitch and roll orientations of the dumbbell. This is the "classe" variable in the training set.
+ This report describes how   the construction of the model is made, with focus on cross validation, it also includes the expected error and justifies the decision making throughout the process.
+ 
+Three different trials with different algorithms are perfomed to verify their accuracy and one of them is selected  based on the level of accuracy.
+
+- Decision Trees
+- Random Forest
+- svmradial
+
+These predictions are later submitted in individual files created by a routine provided by Coursera.
+ The analysis is conducted in RStudio
+ 
+DataSets and sources of information taken from:
+ 
+ 1.  The training data for this project are available: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+ 
+ 2.  The test data are available: <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+ 3.	The data for this project come from this source: <http://groupware.les.inf.puc-rio.br/har>.
+ The data used in this project is available  in the course website.
+ Training Data and Testing Data
+ Data Analysis and Predictions
+
+### 1 - Loading Libraries
+ In order to execute the project a few packages must be loaded.
+ Caret package is prerequisite, as it  provides the interface into multiple of machine learning methods, making the entire analysis process much easier.
+ Also note the use of the library (doParallel) library and doParallel function call. This is needed to utilize multiple cores which will be used during the modeling building to speed-up the calculations.
+
+```{r, echo=FALSE, results="hide"}
+library(ggplot2);library(lattice);library(caret);
+library(Hmisc);library(rpart);library(rpart.plot); library(rattle); library(foreach);
+library(doParallel);library(randomForest)
+```
+
+### 2 - Setting My Working Directory
+ The following code is to setup my local working directory and download the datasets from the source.
+ 
+```{r, echo=FALSE, results="hide"}
+ setwd("C:/Users/me/Desktop/PML")
+ path <- getwd() ; path
+ 
+ fileUrl1<- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+ download.file(fileUrl1,destfile="pml_training.csv",mode="wb")
+ fileUrl2<- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+ download.file(fileUrl2, destfile = "pml_testing.csv", mode = "wb")
+```
+Verify all required files are in working diectory
+
+```{r, echo=FALSE}
+ files<-list.files(path, recursive=TRUE)
+```
+
+### 3 - Reading Data
+ Some observations contain='DIV/0' so dealing with them while reading files
+
+```{r}
+my_pml_training <- read.csv("pml_training.csv", na.strings= c("NA","#DIV/0!"," "))
+my_pml_testing <- read.csv("pml_testing.csv", na.strings= c("NA","#DIV/0!"," "))
+
+```
+### 4 - Cleaning Data
+#### 4.1 Creating a cleaning function:
+Removing id columns [1-7]: X;user_name;  raw_times;tamp_part_1;	raw_timesta    mp_part_2;	cvtd_timestamp;	new_window num_window;
+and removing NA columns too
+ 
+```{r}
+filterData <- function(tidy) {
+  # NA's  removal
+  aux.keep <- !sapply(tidy, function(x) any(is.na(x)))
+  tidy <- tidy[, aux.keep]
+  aux.keep <- !sapply(tidy, function(x) any(x==""))
+  tidy <- tidy[, aux.keep]
+
+  # Columns that aren't the predictor variables are removed
+  col.rm <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2",
+              "cvtd_timestamp", "new_window", "num_window")
+  aux.rm <- which(colnames(tidy) %in% col.rm)
+  tidy <- tidy[, -aux.rm]
+  return(tidy)
+}
+
+```
+
+#### 4.2 Applying cleaning function to the dataset Training
+
+```{r}
+my_pml_training<- filterData(my_pml_training)
+my_pml_training$classe <- factor(my_pml_training$classe)
+
+```
+#### 4.3 Apply cleaning function to the dataset Testing
+
+```{r}
+my_pml_testing <- filterData(my_pml_testing)
+   
+```
+Extraction of gym activities (column names) and store them in a vector gymprogram to be used in the final prediction
+
+```{r}
+gymprogram <- colnames(my_pml_training)
+my_gym_model <- my_pml_training[gymprogram]  
+gymprogram;
+   
+```
+### 5 - Partition the cleaned testing data into training and testing for cross validation
+
+```{r}
+    inTrain <- createDataPartition(y = my_gym_model$classe, p = 0.75, list = FALSE)     #let p be 75%
+        my_training <- my_gym_model[inTrain, ]
+        my_testing <- my_gym_model[-inTrain, ]
+        dim(my_training)
+        dim(my_testing)
+
+```
+
+### 6 - Using MLearning Algorithms For Prediction
+#### 6.1  Decision Tree
+ 
+```{r}
+rtrees <- rpart(classe ~ ., data=my_training, method="class")
+predictionRT <- predict(rtrees, my_testing, type = "class")
+m1<-confusionMatrix(predictionRT, my_testing$classe)$overall[1]
+m1;
+
+```
+
+#### Using function train this time and plotting the outcomes
+```{r}
+rtrees1 <- train(classe~.,method="rpart",data= my_training)
+print(rtrees1$finalModel)
+```
+#### Plotting dendrogram:
+```{r, fig.show='hold', fig.height=7, fig.width=6}
+ 
+  plot(rtrees1$finalModel, uniform=TRUE, main="Classifcation Tree")
+  text(rtrees1$finalModel, use.n=TRUE, all=TRUE, cex=.6)
+```
+
+#### Plotting the decision tree with the funtion fancyRpart:
+```{r, fig.show='hold', fig.height=7, fig.width=5}
+  fancyRpartPlot(rtrees1$finalModel, main="fancyRpart Plot", cex=.4)
+
+```
+
+#### 6.2 Random Forest
+
+```{r}
+detectCores( )
+registerDoParallel()
+```
+
+RandomeForest using the funtion foreach for 'n' trees, speedy
+
+```{r}
+a <- my_training[-ncol(my_training)]
+b <- my_training$classe
+  rf <- foreach(ntree=rep(100, 6), .combine=randomForest::combine, .packages='randomForest') %dopar% {
+  randomForest(a, b, ntree=ntree)
+  }
+```
+
+Predictions  
+```{r}
+predictions2b <- predict(rf, my_testing, type = "class")  
+m2a<-confusionMatrix(predictions2b,my_testing$classe)$overall[1]
+m2a;  
+
+```
+
+```{r}
+predictions2a <- predict(rf, my_training, type = "class")
+m2b<-confusionMatrix(predictions2a,my_training$classe)$overall[1]
+m2b; # 1 for itself
+```
+
+```{r,  echo=TRUE, results="hide", eval=FALSE}
+#By the book, this takes a lot longer, 1478 size
+rf <- train(classe ~ ., data=my_training, method="rf")
+predRf <- predict(rf, my_testing)
+m2a<-confusionMatrix(predRf,my_testing$classe)$overall[1]
+m2a 
+```
+
+#### 6.4 Prediction 3 svmradial
+Using TrainControl with 3-fold cross validation
+
+```{r}
+cvCtrl <- trainControl(method = "cv", number = 2, allowParallel = TRUE, verboseIter = TRUE)
+svmR<- train(classe ~ ., data = my_training, method = "svmRadial", trControl = cvCtrl)
+presmv<- predict(svmR, my_testing)
+m3<-confusionMatrix(presmv,my_testing$classe)$overall[1]
+m3
+
+```
+### 7 - Prediction Using The Random Forest On The Model
+The Random Forest is the most accurate at:
+```{r}
+print(m2a)
+```
+
+Applying this model to the data and using the routine from Coursera to output the result-files:
+
+```{r}
+x<- my_pml_testing
+x<- x[gymprogram[gymprogram!='classe']]
+      predictions <- predict(rf, newdata=x)  #results are here, not to be printed in screen
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+    pml_write_files(predictions)
+
+```
+
+
+
+
+
+
